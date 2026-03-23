@@ -1,0 +1,144 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# =========================
+# 常數
+# =========================
+h = 6.62607015e-34       # Planck constant, J s
+c = 2.99792458e8         # speed of light, m/s
+k = 1.380649e-23         # Boltzmann constant, J/K
+sigma = 5.670374419e-8   # Stefan-Boltzmann constant, W/m^2/K^4
+b = 2897.771955          # Wien displacement constant, um*K
+
+# =========================
+# 溫度與標籤
+# =========================
+temps = [230, 300, 1100]
+labels = ['Cloud top (230 K)', 'Ocean surface (300 K)', 'Fresh lava (1100 K)']
+
+# 波長範圍：1–20 um
+wl_um = np.linspace(1, 20, 5000)     # 單位: um
+wl_m = wl_um * 1e-6                  # 單位: m
+
+# =========================
+# 普朗克定律（波長形式）
+# 回傳單位: W m^-2 sr^-1 um^-1
+# =========================
+def planck_lambda_um(wl_m, T):
+    """
+    wl_m : 波長（m）
+    T    : 溫度（K）
+    回傳 : spectral radiance, W m^-2 sr^-1 um^-1
+    """
+    a = 2 * h * c**2 / wl_m**5
+    x = h * c / (wl_m * k * T)
+
+    # 避免 exp 太大造成數值溢位
+    intensity_per_m = a / (np.exp(np.clip(x, None, 700)) - 1)
+
+    # 由 per meter 轉成 per micrometer
+    intensity_per_um = intensity_per_m * 1e-6
+    return intensity_per_um
+
+# =========================
+# 計算與作圖
+# =========================
+plt.figure(figsize=(10, 6))
+
+results = []
+
+for T, label in zip(temps, labels):
+    B = planck_lambda_um(wl_m, T)
+
+    # 數值峰值
+    peak_idx = np.argmax(B)
+    peak_wl_num = wl_um[peak_idx]
+    peak_B = B[peak_idx]
+
+    # 韋恩定律峰值
+    peak_wl_wien = b / T
+
+    # 誤差
+    diff = peak_wl_num - peak_wl_wien
+    diff_pct = diff / peak_wl_wien * 100
+
+    # 總發射通量（Stefan-Boltzmann）
+    total_flux = sigma * T**4
+
+    results.append({
+        "Temperature (K)": T,
+        "Numerical peak λ (um)": peak_wl_num,
+        "Wien peak λ (um)": peak_wl_wien,
+        "Difference (um)": diff,
+        "Difference (%)": diff_pct,
+        "Total emitted flux (W/m^2)": total_flux
+    })
+
+    # 畫曲線
+    plt.plot(wl_um, B, label=label, linewidth=2)
+
+    # 標記峰值
+    plt.plot(peak_wl_num, peak_B, 'o', markersize=7)
+    plt.annotate(
+        f'{peak_wl_num:.2f} μm',
+        xy=(peak_wl_num, peak_B),
+        xytext=(peak_wl_num + 0.4, peak_B * 1.05),
+        fontsize=10,
+        arrowprops=dict(arrowstyle='->', lw=1)
+    )
+
+# 圖形設定
+plt.xlabel('Wavelength (μm)', fontsize=12)
+plt.ylabel(r'Spectral Radiance (W m$^{-2}$ sr$^{-1}$ μm$^{-1}$)', fontsize=12)
+plt.title('Planck Curves for 230 K, 300 K, and 1100 K', fontsize=14)
+plt.xlim(1, 20)
+plt.ylim(bottom=0)
+plt.grid(alpha=0.3)
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+# =========================
+# 輸出表格
+# =========================
+df = pd.DataFrame(results)
+
+# 美化顯示格式
+df_display = df.copy()
+df_display["Numerical peak λ (um)"] = df_display["Numerical peak λ (um)"].map(lambda x: f"{x:.4f}")
+df_display["Wien peak λ (um)"] = df_display["Wien peak λ (um)"].map(lambda x: f"{x:.4f}")
+df_display["Difference (um)"] = df_display["Difference (um)"].map(lambda x: f"{x:.4f}")
+df_display["Difference (%)"] = df_display["Difference (%)"].map(lambda x: f"{x:.4f}")
+df_display["Total emitted flux (W/m^2)"] = df_display["Total emitted flux (W/m^2)"].map(lambda x: f"{x:.3f}")
+
+print("\n=== Peak wavelength and total emitted flux table ===")
+print(df_display.to_string(index=False))
+
+# =========================
+# 額外判讀：最可能觀測到的目標
+# 題目中的 10 um radiance 通常用 9.0 W m^-2 sr^-1 um^-1 來判斷
+# 這裡直接比較三個候選目標在 10 um 的輻射大小
+# =========================
+obs_wl_um = 10.0
+obs_wl_m = obs_wl_um * 1e-6
+observed_radiance = 9.0  # W m^-2 sr^-1 um^-1
+
+print("\n=== Radiance at 10 μm ===")
+closest_name = None
+closest_T = None
+min_diff = float('inf')
+
+for T, label in zip(temps, labels):
+    L10 = planck_lambda_um(np.array([obs_wl_m]), T)[0]
+    diff = abs(L10 - observed_radiance)
+    print(f"{label}: {L10:.3f} W m^-2 sr^-1 um^-1")
+
+    if diff < min_diff:
+        min_diff = diff
+        closest_name = label
+        closest_T = T
+
+print("\n=== Interpretation ===")
+print(f"The observed 10 μm radiance is closest to the {closest_name}.")
+print(f"This means the most likely observed target is the one near {closest_T} K.")
